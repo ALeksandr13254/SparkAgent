@@ -246,9 +246,9 @@ class NIMClient:
                 kind = _classify(err)
                 text = str(err)
                 if kind == "geo":
-                    raise UpstreamError(403, "OpenCode Zen отклонил запрос: модель недоступна из вашего региона "
-                                             "(geo-block, в т.ч. RU). Задайте в server/.env LLM_PROXY=http(s)/socks5://… "
-                                             "и повторите.") from err
+                    raise UpstreamError(403, f"OpenCode Zen отклонил запрос (403): {text[:250]} "
+                                             "Если причина — регион, задайте в server/.env "
+                                             "LLM_PROXY=http(s)/socks5://… и повторите.") from err
                 if not temp_dropped and "temperature" in body and "temperature" in text.lower() and attempt < 2:
                     temp_dropped = True
                     attempt += 1
