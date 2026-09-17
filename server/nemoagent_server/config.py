@@ -46,19 +46,19 @@ class Settings:
     PORT = _int("PORT", 8700)
     AGENT_TOKEN = _env("AGENT_TOKEN", "")          # shared secret between client and server
 
-    # --- OpenCode Zen (Muse Spark 1.3 Contributor, Responses API) ---
+    # --- OpenCode Go (Muse Spark 1.3 Contributor, Responses API, $10/mo sub) ---
     # All text roles (dialogue, executor, router) and media calls go to a single model.
-    # Free contributor tier works with the public token; a personal key from
-    # https://opencode.ai/auth also fits. NOTE: the free model may be geo-blocked
-    # (incl. RU) — set LLM_PROXY to an http/https/socks5 proxy URL to bypass it.
-    ZEN_API_KEY = _env("OPENCODE_ZEN_API_KEY", "public")
-    ZEN_BASE_URL = _env("ZEN_BASE_URL", "https://opencode.ai/zen/v1")
-    ZEN_MODEL = _env("ZEN_MODEL", "muse-spark-1.3-contributor-free")
-    LLM_PROXY = _env("LLM_PROXY")  # optional proxy for the Zen API only
+    # Key from /connect in the OpenCode app (stored in ~/.local/share/opencode/auth.json
+    # under "opencode-go"); put it into server/.env as OPENCODE_API_KEY.
+    # Requests carry SparkAgent fingerprint headers (own UA + stable x-opencode-session).
+    GO_API_KEY = _env("OPENCODE_API_KEY", "")
+    GO_BASE_URL = _env("GO_BASE_URL", "https://opencode.ai/zen/go/v1")
+    GO_MODEL = _env("GO_MODEL", "muse-spark-1.3-contributor")
+    LLM_PROXY = _env("LLM_PROXY")  # optional proxy for the Go API only (e.g. socks5h://127.0.0.1:2080)
     # Server-side defaults per role; the client can override every role from its settings panel
     # (client_info["models"] = {dialogue, executor, router, media}).
-    LLM_MODEL = _env("LLM_MODEL", ZEN_MODEL)                        # dialogue + executor (text)
-    LLM_MEDIA_MODEL = _env("LLM_MEDIA_MODEL", ZEN_MODEL)
+    LLM_MODEL = _env("LLM_MODEL", GO_MODEL)                        # dialogue + executor (text)
+    LLM_MEDIA_MODEL = _env("LLM_MEDIA_MODEL", GO_MODEL)
     LLM_THINKING = _bool("LLM_THINKING", False)     # kept for compatibility; the Responses API reasons internally
     LLM_TEMPERATURE = _float("LLM_TEMPERATURE", 0.3)
     # --- NVIDIA NIM: kept only for the memory embeddings below ---
@@ -67,7 +67,7 @@ class Settings:
     # Router: a fast parallel call that classifies the user's request (needs the executor or not) and drafts
     # the task, so an action is carried out even when the dialogue agent forgets its `>>>` line.
     ROUTER_ENABLED = _bool("ROUTER_ENABLED", True)
-    ROUTER_MODEL = _env("ROUTER_MODEL", ZEN_MODEL)
+    ROUTER_MODEL = _env("ROUTER_MODEL", GO_MODEL)
     ROUTER_TIMEOUT = _float("ROUTER_TIMEOUT", 4.0)             # seconds to wait for its verdict after the answer
     LLM_MAX_TOKENS = _int("LLM_MAX_TOKENS", 4096)            # executor rounds (write_file content can be long)
     DIALOGUE_MAX_TOKENS = _int("DIALOGUE_MAX_TOKENS", 1200)   # spoken answer + screen part; bounds a runaway to ~30 s

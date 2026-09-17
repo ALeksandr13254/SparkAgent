@@ -74,11 +74,11 @@ class Settings:
     TTS_THREADS = _int("TTS_THREADS", 0)               # 0 = automatic
     TTS_LANGUAGE = _env("TTS_LANGUAGE", "ru")        # auto (by script) | ru | en — which voice reads Latin words and numbers
     # Model per role, asked from the server (switchable in the UI settings). All roles
-    # use Muse Spark 1.3 Contributor via OpenCode Zen (Responses API).
-    MODEL_DIALOGUE = _env("MODEL_DIALOGUE", "muse-spark-1.3-contributor-free")
-    MODEL_EXECUTOR = _env("MODEL_EXECUTOR", "muse-spark-1.3-contributor-free")
-    MODEL_ROUTER = _env("MODEL_ROUTER", "muse-spark-1.3-contributor-free")
-    MODEL_MEDIA = _env("MODEL_MEDIA", "muse-spark-1.3-contributor-free")
+    # use Muse Spark 1.3 Contributor via OpenCode Go (Responses API).
+    MODEL_DIALOGUE = _env("MODEL_DIALOGUE", "muse-spark-1.3-contributor")
+    MODEL_EXECUTOR = _env("MODEL_EXECUTOR", "muse-spark-1.3-contributor")
+    MODEL_ROUTER = _env("MODEL_ROUTER", "muse-spark-1.3-contributor")
+    MODEL_MEDIA = _env("MODEL_MEDIA", "muse-spark-1.3-contributor")
     TTS_VOICE_RU = _env("TTS_VOICE_RU", "ru_f1")
     TTS_VOICE_EN = _env("TTS_VOICE_EN", "eng_f5")
     TTS_SPEED = _float("TTS_SPEED", 1.0)               # duration_scale: <1 faster, >1 slower

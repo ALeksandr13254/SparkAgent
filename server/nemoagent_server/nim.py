@@ -168,13 +168,17 @@ def _map_usage(u: Optional[dict]) -> Optional[dict]:
 
 
 class NIMClient:
-    """Same public shape as NemoAgent's client; text goes to Zen, embeddings to NIM."""
+    """Same public shape as NemoAgent's client; text goes to OpenCode Go, embeddings to NIM."""
 
     def __init__(self) -> None:
-        zen_base = settings.ZEN_BASE_URL.rstrip("/") + "/"
+        go_base = settings.GO_BASE_URL.rstrip("/") + "/"
         self._zen = httpx.AsyncClient(
-            base_url=zen_base,
-            headers={"Authorization": f"Bearer {settings.ZEN_API_KEY}", "Accept": "application/json"},
+            base_url=go_base,
+            headers={"Authorization": f"Bearer {settings.GO_API_KEY}", "Accept": "application/json",
+                     # Go docs: identify with our own UA (not a generic SDK name) + stable session id.
+                     "User-Agent": "SparkAgent/1.0",
+                     "x-opencode-client": "sparkagent",
+                     "x-opencode-project": "global"},
             timeout=httpx.Timeout(connect=20.0, read=float(settings.UPSTREAM_TIMEOUT), write=60.0, pool=60.0),
             limits=httpx.Limits(max_keepalive_connections=16, max_connections=32, keepalive_expiry=60),
             proxy=settings.LLM_PROXY or None,
@@ -197,11 +201,13 @@ class NIMClient:
         tools: Optional[list[dict]],
         *,
         model: Optional[str] = None,
-        thinking: Optional[bool] = None,  # accepted for compatibility; Zen reasons internally
+        thinking: Optional[bool] = None,  # accepted for compatibility; Go reasons internally
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         tool_choice: Any = "auto",
         on_event: Optional[Callable[[str, dict], Awaitable[None]]] = None,
+        session_id: Optional[str] = None,  # stable per conversation -> x-opencode-session (routing/cache)
+        reasoning_effort: Optional[str] = None,  # minimal|low|medium|high|xhigh; default: medium w/ tools, else low
     ) -> Completion:
         """Stream one assistant turn. on_event(kind, data) gets 'delta' / 'reasoning' / 'wait' events."""
         model = model or settings.LLM_MODEL
@@ -221,32 +227,41 @@ class NIMClient:
         if instructions:
             body["instructions"] = "\n\n".join(instructions)
         body["input"] = inputs
-        if temperature is None:
-            temperature = settings.LLM_TEMPERATURE
-        if temperature is not None:
-            body["temperature"] = temperature
+        # NOTE: the Go gateway pins temperature server-side and rejects the parameter,
+        # so it is never sent (the `temperature` argument is accepted for compatibility only).
         rtools = _convert_tools(tools)
+        body["reasoning"] = {"effort": reasoning_effort or ("medium" if rtools else "low")}
         if rtools:
             body["tools"] = rtools
-            body["tool_choice"] = tool_choice or "auto"
+            # Console Go accepts only tool_choice "auto": emulate "required" (and named
+            # choices) with a directive, which the executor relies on as a fallback.
+            requested = tool_choice or "auto"
+            if requested != "auto":
+                extra = ("[System directive: you MUST call at least one of the provided functions "
+                         "in this turn; a plain-text answer is not accepted.]")
+                body["instructions"] = ((body.get("instructions") or "") + "\n\n" + extra).strip()
+            body["tool_choice"] = "auto"
         if log.isEnabledFor(logging.DEBUG):
-            log.debug("Zen request: model=%s tool_choice=%s tools=%s",
+            log.debug("Go request: model=%s tool_choice=%s tools=%s",
                       model, body.get("tool_choice"), [t.get("name") for t in rtools])
+        # Per-request fingerprint: stable session id + fresh request id (Go docs).
+        extra_headers = {"x-opencode-session": session_id or f"ses_{uuid.uuid4().hex}",
+                         "x-opencode-request": f"msg_{uuid.uuid4().hex}"}
 
         attempt = 0
         temp_dropped = False
         while True:
             try:
                 if rtools:
-                    return await self._once(body, on_event)
-                return await self._stream(body, on_event)
+                    return await self._once(body, on_event, extra_headers)
+                return await self._stream(body, on_event, extra_headers)
             except _Emitted as e:
                 raise e.inner
             except Exception as err:  # noqa: BLE001
                 kind = _classify(err)
                 text = str(err)
                 if kind == "geo":
-                    raise UpstreamError(403, f"OpenCode Zen отклонил запрос (403): {text[:250]} "
+                    raise UpstreamError(403, f"OpenCode Go отклонил запрос (403): {text[:250]} "
                                              "Если причина — регион, задайте в server/.env "
                                              "LLM_PROXY=http(s)/socks5://… и повторите.") from err
                 if not temp_dropped and "temperature" in body and "temperature" in text.lower() and attempt < 2:
@@ -258,16 +273,16 @@ class NIMClient:
                 if kind in ("overloaded", "dropped") and attempt < len(RETRY_DELAYS):
                     delay = 1.5 if kind == "dropped" else RETRY_DELAYS[attempt]
                     attempt += 1
-                    log.warning("Zen %s (%s) — retry %d in %.1fs", kind, text[:120], attempt, delay)
+                    log.warning("Go %s (%s) — retry %d in %.1fs", kind, text[:120], attempt, delay)
                     if on_event:
                         await on_event("wait", {"stage": "retry", "reason": kind, "attempt": attempt, "delay": delay})
                     await asyncio.sleep(delay)
                     continue
                 raise
 
-    async def _once(self, body: dict, on_event) -> Completion:
+    async def _once(self, body: dict, on_event, extra_headers: dict) -> Completion:
         """One non-streamed Responses request (executor rounds with tools)."""
-        r = await self._zen.post("responses", json={**body, "stream": False})
+        r = await self._zen.post("responses", json={**body, "stream": False}, headers=extra_headers)
         if r.status_code != 200:
             raise UpstreamError(r.status_code, _error_detail(r.text))
         data = r.json()
@@ -297,10 +312,10 @@ class NIMClient:
             await on_event("delta", {"content": acc.content})
         return acc
 
-    async def _stream(self, body: dict, on_event) -> Completion:
+    async def _stream(self, body: dict, on_event, extra_headers: dict) -> Completion:
         req = {**body, "stream": True}
         async with self._zen.stream("POST", "responses", json=req,
-                                    headers={"Accept": "text/event-stream"}) as resp:
+                                    headers={"Accept": "text/event-stream", **extra_headers}) as resp:
             if resp.status_code != 200:
                 text = (await resp.aread()).decode("utf-8", "ignore")
                 raise UpstreamError(resp.status_code, _error_detail(text))
@@ -352,6 +367,13 @@ class NIMClient:
                     u = ((evt.get("response") or {}).get("usage")) or evt.get("usage")
                     acc.usage = _map_usage(u)
                 elif t in ("response.failed", "response.incomplete"):
+                    if t == "response.incomplete" and acc.content.strip():
+                        # cut by max_output_tokens (reasoning eats the budget too): keep what we got
+                        u = ((evt.get("response") or {}).get("usage")) or evt.get("usage")
+                        if u:
+                            acc.usage = _map_usage(u)
+                        acc.finish_reason = "length"
+                        break
                     detail = json.dumps(evt)[:300]
                     raise UpstreamError(502, f"response did not complete: {detail}")
         except Exception as e:

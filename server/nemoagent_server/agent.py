@@ -293,7 +293,8 @@ class AgentSession:
                              "round": call_no, "model": model, "messages": media.redact(messages), "tools": [],
                              "params": self._trace_params(tts, use_memory, source, [], settings.DIALOGUE_MAX_TOKENS)})
             acc: Completion = await self.services.nim.chat_stream(messages, None, model=model,
-                                                                  max_tokens=settings.DIALOGUE_MAX_TOKENS, on_event=on_event)
+                                                                  max_tokens=settings.DIALOGUE_MAX_TOKENS, on_event=on_event,
+                                                                  session_id=self.id)
             await emit(router.finish())
             await self.send({"type": "trace", "kind": "response", "agent": "dialogue", "stage": stage, "turn": self.turns,
                              "round": call_no, "content": acc.content, "reasoning": acc.reasoning, "tool_calls": [],
@@ -329,7 +330,8 @@ class AgentSession:
                          "params": dict(self._trace_params(tts, use_memory, source, [], 200), temperature=0.1)})
         try:
             acc: Completion = await self.services.nim.chat_stream(messages, None, model=model,
-                                                                  temperature=0.1, max_tokens=200, thinking=False)
+                                                                  temperature=0.1, max_tokens=200, thinking=False,
+                                                                  session_id=self.id, reasoning_effort="minimal")
         except Exception as e:  # noqa: BLE001
             log.warning("session %s: router call failed: %s", self.id, e)
             return None
@@ -392,7 +394,7 @@ class AgentSession:
                 elif kind == "wait":
                     await self.send({"type": "wait", **data})
 
-            acc: Completion = await self.services.nim.chat_stream(messages, schemas, model=model, tool_choice=choice, on_event=on_event)
+            acc: Completion = await self.services.nim.chat_stream(messages, schemas, model=model, tool_choice=choice, on_event=on_event, session_id=self.id)
             await self.send({"type": "trace", "kind": "response", "agent": "executor", "stage": "executor", "turn": self.turns,
                              "round": call_no + round_no - 1, "content": acc.content, "reasoning": acc.reasoning,
                              "tool_calls": acc.tool_calls, "finish_reason": acc.finish_reason, "usage": acc.usage,
