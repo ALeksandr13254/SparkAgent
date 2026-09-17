@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SparkAgent</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="layout">
+<aside id="history">
+  <div id="side-chats" class="side">
+    <div class="panehead">
+      <b>Чаты</b>
+      <span class="spacer"></span>
+      <button id="hist-new" class="link" title="Начать новый диалог">+ новый</button>
+    </div>
+    <div id="hist-list" class="side-list"></div>
+    <div class="hist-foot">
+      <button id="hist-clear" class="danger" title="Очистить текущий чат: убрать его из списка и стереть его записи из долговременной памяти">Очистить чат</button>
+    </div>
+  </div>
+  <div id="side-mem" class="side hidden">
+    <div class="panehead">
+      <b>Воспоминания</b> <span id="mem-total" class="muted small"></span>
+      <span class="spacer"></span>
+      <button id="mem-new-btn" class="link" title="Добавить воспоминание руками: факт о вас, предпочтение, договорённость">+ новое</button>
+    </div>
+    <div id="mem-items" class="side-list"></div>
+    <div class="hist-foot col">
+      <button id="mem-prune" title="Удалить пустяковые (короткий вопрос и короткий ответ) и повторяющиеся записи">Прибраться в памяти</button>
+      <button id="mem-clear" class="danger" title="Стереть всю долговременную память сервера (необратимо)">Очистить память</button>
+      <div id="mem-status" class="muted small"></div>
+    </div>
+  </div>
+</aside>
+<div id="app">
+  <header>
+    <button id="btn-history" class="icon" title="История чатов">☰</button>
+    <div class="brand">SparkAgent <span id="model" class="muted"></span></div>
+    <div class="pills">
+      <span class="pill" id="pill-server" title="Соединение с сервером">сервер</span>
+      <span class="pill" id="pill-stt" title="Распознавание речи">STT</span>
+      <span class="pill" id="pill-tts" title="Синтез речи">TTS</span>
+      <span class="pill" id="pill-vision" title="Модель сама видит картинки, слышит аудио и смотрит видео из вложений">omni</span>
+      <span class="pill" id="pill-memory" title="Записей в долговременной памяти">память</span>
+    </div>
+    <div class="metrics" id="metrics"></div>
+    <button id="btn-settings" class="icon" title="Настройки">⚙</button>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="chat">Чат</button>
+    <button class="tab" data-tab="prompt">Системные промпты</button>
+    <button class="tab" data-tab="memory">Память</button>
+    <button class="tab" data-tab="log">Полные логи <span id="log-count" class="muted"></span></button>
+    <button class="tab" data-tab="reader">Озвучка</button>
+  </nav>
+
+  <section id="memory" class="tabpane hidden">
+    <div class="editor">
+      <div class="panehead">
+        <b>Долговременная память</b>
+        <span class="muted small">Записи хранятся на этом компьютере (client/data/memory.sqlite3) и подмешиваются в разговор при нажатой 🗂 и по которым ищет исполнитель. Слева список воспоминаний: выберите одно, чтобы прочитать, поправить (эмбеддинг пересчитается) или удалить; «+ новое воспоминание» добавляет запись руками.</span>
+      </div>
+      <div class="row left">
+        <input id="mem-search" placeholder="поиск по смыслу: что искать в памяти…">
+        <button id="mem-search-btn">искать</button>
+        <button id="mem-all" class="link">показать все</button>
+      </div>
+    </div>
+    <div id="mem-editor" class="editor hidden">
+      <div class="panehead">
+        <b id="mem-ed-title">Воспоминание</b>
+        <span id="mem-ed-meta" class="muted small"></span>
+        <span class="spacer"></span>
+        <span id="mem-ed-status" class="muted small"></span>
+      </div>
+      <textarea id="mem-ed-text" rows="10" spellcheck="false" placeholder="Например: Меня зовут Александр, видеокарта RTX 4070 Ti SUPER, отвечать кратко."></textarea>
+      <div class="row left">
+        <button id="mem-ed-save" class="primary" disabled>Сохранить</button>
+        <button id="mem-ed-del" class="danger">Удалить</button>
+        <button id="mem-ed-cancel" class="link">закрыть</button>
+      </div>
+    </div>
+    <div id="mem-empty" class="muted small">Выберите воспоминание слева или нажмите «+ новое воспоминание».</div>
+  </section>
+
+  <section id="reader" class="tabpane hidden">
+    <div class="editor reader">
+      <div class="panehead">
+        <b>Озвучка текста</b>
+        <span class="muted small">Вставьте или надиктуйте текст любого размера и нажмите «Озвучить»: читает TeraTTS теми же голосами и с тем же темпом, что и агент, по предложениям. Если выделить фрагмент, прочитается только он. Текст сохраняется в браузере.</span>
+      </div>
+      <textarea id="reader-text" rows="22" placeholder="Текст для озвучки… (диктовка 🎙 добавляет распознанные фразы сюда, а не в чат)"></textarea>
+      <div class="row left">
+        <button id="reader-play" class="primary" title="Озвучить весь текст или выделенный фрагмент">▶ Озвучить</button>
+        <button id="reader-stop" title="Остановить озвучку">■ Стоп</button>
+        <button id="reader-dictate" title="Диктовка: включает прослушивание, распознанные фразы добавляются в текст, а не отправляются агенту. Пока включена, работает и push-to-talk пробелом. Повторное нажатие выключает">Диктовка</button>
+        <button id="reader-clear" class="link">очистить</button>
+        <span class="spacer"></span>
+        <span id="reader-count" class="muted small"></span>
+      </div>
+      <div class="progress"><div id="reader-bar"></div></div>
+      <div id="reader-now" class="muted small"></div>
+      <div class="statusline">
+        <div class="meter" title="Уровень микрофона"><div id="reader-mic-level"></div></div>
+        <span id="reader-stt" class="muted"></span>
+      </div>
+    </div>
+  </section>
+
+  <main id="chat" class="tabpane"></main>
+
+  <section id="prompt" class="tabpane hidden">
+    <div class="editor">
+      <div class="panehead">
+        <b>Редактирование</b>
+        <span class="muted small">Хранится на сервере, действует со следующего сообщения. Голосовой (диалоговый) агент без инструментов отвечает пользователю и ставит задачу исполнителю строкой <code>&gt;&gt;&gt;</code>; исполнитель выполняет её инструментами и возвращает отчёт, после чего голосовой агент докладывает. Подстановки: <code>{env}</code> (окружение и время), <code>{voice_style}</code> (стиль по режиму).</span>
+      </div>
+      <label class="ed">Шаблон системного промпта <span id="ov-system" class="muted small"></span>
+        <textarea id="ed-system" rows="18" spellcheck="false"></textarea></label>
+      <label class="ed">Стиль голосового режима (правила речи) <span id="ov-voice_prose" class="muted small"></span>
+        <textarea id="ed-voice_prose" rows="14" spellcheck="false"></textarea></label>
+      <label class="ed">Стиль текстового режима <span id="ov-voice_text" class="muted small"></span>
+        <textarea id="ed-voice_text" rows="3" spellcheck="false"></textarea></label>
+      <label class="ed">Промпт внутреннего исполнителя (работает с инструментами, получает задачу от голосового агента) <span id="ov-executor" class="muted small"></span>
+        <textarea id="ed-executor" rows="12" spellcheck="false"></textarea></label>
+      <label class="ed">Промпт маршрутизатора (быстрая модель параллельно с ответом решает, нужен ли исполнитель, и формулирует задачу — страховка на случай, если голосовой агент не поставил <code>&gt;&gt;&gt;</code>) <span id="ov-router" class="muted small"></span>
+        <textarea id="ed-router" rows="8" spellcheck="false"></textarea></label>
+      <div class="row left">
+        <button id="prompt-save" class="primary">Сохранить</button>
+        <button id="prompt-reset">Сбросить к умолчанию</button>
+        <button id="prompt-reload" class="link">перечитать с сервера</button>
+        <span id="prompt-status" class="muted small"></span>
+      </div>
+    </div>
+    <div class="panehead">
+      <b>Последний отправленный промпт</b>
+      <span class="muted small" id="prompt-meta">Появится после первого сообщения: ровно тот текст, который ушёл в модель.</span>
+    </div>
+    <pre id="prompt-text" class="raw"></pre>
+  </section>
+
+  <section id="log" class="tabpane hidden">
+    <div class="panehead">
+      <span class="muted small">Всё, что реально уходит в модель и приходит от неё: системный промпт, история, вызовы инструментов и их результаты, ответы, usage.</span>
+      <span class="spacer"></span>
+      <button id="log-clear" class="link">очистить</button>
+    </div>
+    <div id="log-list"></div>
+  </section>
+
+  <div id="attachments" class="attachments"></div>
+
+  <footer>
+    <div class="composer">
+      <textarea id="input" rows="1" placeholder="Напишите сообщение… (Enter — отправить, Shift+Enter — перенос, Ctrl+V — вставить картинку)"></textarea>
+      <div class="buttons">
+        <button id="btn-attach" class="icon" title="Прикрепить файлы">📎</button>
+        <input type="file" id="file-input" multiple hidden>
+        <button id="btn-shot" class="icon" title="Сделать скриншот и прикрепить">🖥</button>
+        <button id="btn-memory" class="icon" title="Память (RAG по прошлым диалогам): пока включено, к сообщениям подмешиваются воспоминания и модели доступен поиск по памяти">🗂</button>
+        <button id="btn-ptt" class="icon" title="Удерживайте, чтобы говорить (push-to-talk)">🎙</button>
+        <button id="btn-listen" class="icon" title="Автоматическое прослушивание (VAD)">👂</button>
+        <button id="btn-stop" class="icon" title="Остановить ответ / озвучку">■</button>
+        <button id="btn-send" class="primary" title="Отправить">➤</button>
+      </div>
+    </div>
+    <div class="statusline">
+      <div class="meter"><div id="mic-level"></div></div>
+      <span id="stt-state" class="muted"></span>
+      <span class="spacer"></span>
+      <button id="btn-new" class="link">новый диалог</button>
+    </div>
+  </footer>
+
+
+  <div id="confirm" class="modal hidden">
+    <div class="box">
+      <h3>Подтвердить действие?</h3>
+      <div class="muted" id="confirm-name"></div>
+      <pre id="confirm-summary"></pre>
+      <div class="row">
+        <button id="confirm-no">Отклонить</button>
+        <button id="confirm-yes" class="primary">Выполнить</button>
+      </div>
+    </div>
+  </div>
+</div>
+<aside id="settings" class="collapsed">
+  <h3>Настройки</h3>
+  <div class="muted small">Модели по ролям</div>
+  <label>Голосовой агент
+    <select id="s-model_dialogue" title="Отвечает вам и ставит задачи исполнителю. Все роли работают на Muse Spark 1.3 Contributor">
+      <option value="muse-spark-1.3-contributor-free">Muse Spark 1.3 Contributor</option>
+    </select>
+  </label>
+  <label>Исполнитель
+    <select id="s-model_executor" title="Выполняет задачи инструментами на Muse Spark 1.3 Contributor">
+      <option value="muse-spark-1.3-contributor-free">Muse Spark 1.3 Contributor</option>
+    </select>
+  </label>
+  <label>Маршрутизатор
+    <select id="s-model_router" title="Параллельно с ответом решает, нужен ли исполнитель, и формулирует задачу">
+      <option value="muse-spark-1.3-contributor-free">Muse Spark 1.3 Contributor</option>
+    </select>
+  </label>
+  <label>Медиа (картинки, аудио, видео)
+    <select id="s-model_media" title="Берёт любой вызов, в котором есть картинка, аудио, видео или скриншот">
+      <option value="muse-spark-1.3-contributor-free">Muse Spark 1.3 Contributor</option>
+    </select>
+  </label>
+  <hr>
+  <label>Озвучивать ответы
+    <select id="s-tts_mode">
+      <option value="always">всегда</option>
+      <option value="voice">только на голосовые</option>
+      <option value="off">выключено</option>
+    </select>
+  </label>
+  <label>Язык озвучки
+    <select id="s-tts_language" title="Каким голосом читать латинские слова и числа. «Авто» — по тексту предложения; «русский» — всё по-русски (латиница транслитерируется); «английский» — латиница и числа английским голосом">
+      <option value="auto">авто (по тексту)</option>
+      <option value="ru">русский</option>
+      <option value="en">английский</option>
+    </select>
+  </label>
+  <label>Русский голос <select id="s-voice_ru"></select></label>
+  <label>English voice <select id="s-voice_en"></select></label>
+  <label>Темп речи (меньше — быстрее) <input id="s-tts_speed" type="range" min="0.7" max="1.4" step="0.05"><span id="s-tts_speed-v"></span></label>
+  <label>Устройство вывода <select id="s-speaker_device"></select></label>
+  <div id="speaker-now" class="muted small"></div>
+  <label>Микрофон <select id="s-mic_device"></select></label>
+  <div id="mic-now" class="muted small"></div>
+  <label><input id="s-auto_listen" type="checkbox"> Слушать автоматически (VAD)</label>
+  <label><input id="s-barge_in" type="checkbox"> Перебивать голосом (barge-in)</label>
+  <label>Язык распознавания
+    <select id="s-stt_language">
+      <option value="auto">авто</option><option value="ru">русский</option><option value="en">english</option>
+    </select>
+  </label>
+  <hr>
+  <label><input id="s-tools_enabled" type="checkbox"> Разрешить управление компьютером</label>
+  <label>Подтверждение действий
+    <select id="s-confirm">
+      <option value="dangerous">только опасные</option>
+      <option value="always">все действия</option>
+      <option value="never">никогда</option>
+    </select>
+  </label>
+  <div class="muted small" title="Какие экраны попадают в скриншот: кнопка 🖥 в чате и look_at_screen у исполнителя. По одной картинке на каждый выбранный монитор">Скриншот: мониторы</div>
+  <div id="s-monitors"></div>
+  <hr>
+  <button id="btn-say" class="link">проверить голос</button>
+  <div id="settings-status" class="muted small"></div>
+</aside>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
