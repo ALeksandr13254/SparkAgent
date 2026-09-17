@@ -192,23 +192,145 @@
   <h3>Настройки</h3>
   <div class="muted small">Модели по ролям</div>
   <label>Голосовой агент
-    <select id="s-model_dialogue" title="Отвечает вам и ставит задачи исполнителю. Все роли работают на Muse Spark 1.3 Contributor">
+    <select id="s-model_dialogue" title="Отвечает вам и ставит задачи исполнителю">
       <option value="muse-spark-1.3-contributor">Muse Spark 1.3 Contributor</option>
+      <option value="muse-spark-1.2-contributor">Muse Spark 1.2 Contributor</option>
+      <option value="grok-4.6">Grok 4.6</option>
+      <option value="gpt-5.6-luna">GPT 5.6 Luna</option>
+      <option value="glm-5.3-flash">GLM 5.3 Flash</option>
+      <option value="glm-5.3">GLM 5.3</option>
+      <option value="glm-5.2">GLM 5.2</option>
+      <option value="glm-5.1">GLM 5.1</option>
+      <option value="kimi-k3">Kimi K3</option>
+      <option value="kimi-k2.7-code">Kimi K2.7 Code</option>
+      <option value="kimi-k2.6">Kimi K2.6</option>
+      <option value="longcat-2.0">LongCat 2.0</option>
+      <option value="deepseek-v4.1-flash">DeepSeek V4.1 Flash</option>
+      <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
+      <option value="deepseek-v4-flash">DeepSeek V4 Flash</option>
+      <option value="deepseek-v4-flash-vision-exp">DeepSeek V4 Flash Vision Exp</option>
+      <option value="mimo-v2.5">MiMo V2.5</option>
+      <option value="mimo-v2.5-pro">MiMo V2.5 Pro</option>
+      <option value="minimax-m3">MiniMax M3</option>
+      <option value="minimax-m2.7">MiniMax M2.7</option>
+      <option value="minimax-m2.5">MiniMax M2.5</option>
+      <option value="qwen3.8-max">Qwen3.8 Max</option>
+      <option value="qwen3.8-flash">Qwen3.8 Flash</option>
+      <option value="qwen3.7-max">Qwen3.7 Max</option>
+      <option value="qwen3.7-plus">Qwen3.7 Plus</option>
+      <option value="qwen3.6-plus">Qwen3.6 Plus</option>
+      <option value="hy4-preview">Hy4 preview</option>
+      <option value="hy3">Hy3</option>
+      <option value="union-alpha">Union Alpha Free</option>
+    </select>
+  </label>
+  <label>Размышления агента
+    <select id="s-reasoning_dialogue" title="Уровень reasoning для Muse Spark (минимальный — быстрее и дешевле; остальные модели Go игнорируют)">
+      <option value="minimal">minimal</option>
+      <option value="low">low</option>
+      <option value="medium">medium</option>
+      <option value="high">high</option>
+      <option value="xhigh">xhigh</option>
     </select>
   </label>
   <label>Исполнитель
-    <select id="s-model_executor" title="Выполняет задачи инструментами на Muse Spark 1.3 Contributor">
+    <select id="s-model_executor" title="Выполняет задачи инструментами">
       <option value="muse-spark-1.3-contributor">Muse Spark 1.3 Contributor</option>
+      <option value="muse-spark-1.2-contributor">Muse Spark 1.2 Contributor</option>
+      <option value="grok-4.6">Grok 4.6</option>
+      <option value="gpt-5.6-luna">GPT 5.6 Luna</option>
+      <option value="glm-5.3-flash">GLM 5.3 Flash</option>
+      <option value="glm-5.3">GLM 5.3</option>
+      <option value="glm-5.2">GLM 5.2</option>
+      <option value="glm-5.1">GLM 5.1</option>
+      <option value="kimi-k3">Kimi K3</option>
+      <option value="kimi-k2.7-code">Kimi K2.7 Code</option>
+      <option value="kimi-k2.6">Kimi K2.6</option>
+      <option value="longcat-2.0">LongCat 2.0</option>
+      <option value="deepseek-v4.1-flash">DeepSeek V4.1 Flash</option>
+      <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
+      <option value="deepseek-v4-flash">DeepSeek V4 Flash</option>
+      <option value="deepseek-v4-flash-vision-exp">DeepSeek V4 Flash Vision Exp</option>
+      <option value="mimo-v2.5">MiMo V2.5</option>
+      <option value="mimo-v2.5-pro">MiMo V2.5 Pro</option>
+      <option value="minimax-m3">MiniMax M3</option>
+      <option value="minimax-m2.7">MiniMax M2.7</option>
+      <option value="minimax-m2.5">MiniMax M2.5</option>
+      <option value="qwen3.8-max">Qwen3.8 Max</option>
+      <option value="qwen3.8-flash">Qwen3.8 Flash</option>
+      <option value="qwen3.7-max">Qwen3.7 Max</option>
+      <option value="qwen3.7-plus">Qwen3.7 Plus</option>
+      <option value="qwen3.6-plus">Qwen3.6 Plus</option>
+      <option value="hy4-preview">Hy4 preview</option>
+      <option value="hy3">Hy3</option>
+      <option value="union-alpha">Union Alpha Free</option>
+    </select>
+  </label>
+  <label>Размышления исполнителя
+    <select id="s-reasoning_executor" title="Уровень reasoning для Muse Spark (остальные модели Go игнорируют)">
+      <option value="minimal">minimal</option>
+      <option value="low">low</option>
+      <option value="medium">medium</option>
+      <option value="high">high</option>
+      <option value="xhigh">xhigh</option>
     </select>
   </label>
   <label>Маршрутизатор
     <select id="s-model_router" title="Параллельно с ответом решает, нужен ли исполнитель, и формулирует задачу">
       <option value="muse-spark-1.3-contributor">Muse Spark 1.3 Contributor</option>
+      <option value="muse-spark-1.2-contributor">Muse Spark 1.2 Contributor</option>
+      <option value="grok-4.6">Grok 4.6</option>
+      <option value="gpt-5.6-luna">GPT 5.6 Luna</option>
+      <option value="glm-5.3-flash">GLM 5.3 Flash</option>
+      <option value="glm-5.3">GLM 5.3</option>
+      <option value="glm-5.2">GLM 5.2</option>
+      <option value="glm-5.1">GLM 5.1</option>
+      <option value="kimi-k3">Kimi K3</option>
+      <option value="kimi-k2.7-code">Kimi K2.7 Code</option>
+      <option value="kimi-k2.6">Kimi K2.6</option>
+      <option value="longcat-2.0">LongCat 2.0</option>
+      <option value="deepseek-v4.1-flash">DeepSeek V4.1 Flash</option>
+      <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
+      <option value="deepseek-v4-flash">DeepSeek V4 Flash</option>
+      <option value="deepseek-v4-flash-vision-exp">DeepSeek V4 Flash Vision Exp</option>
+      <option value="mimo-v2.5">MiMo V2.5</option>
+      <option value="mimo-v2.5-pro">MiMo V2.5 Pro</option>
+      <option value="minimax-m3">MiniMax M3</option>
+      <option value="minimax-m2.7">MiniMax M2.7</option>
+      <option value="minimax-m2.5">MiniMax M2.5</option>
+      <option value="qwen3.8-max">Qwen3.8 Max</option>
+      <option value="qwen3.8-flash">Qwen3.8 Flash</option>
+      <option value="qwen3.7-max">Qwen3.7 Max</option>
+      <option value="qwen3.7-plus">Qwen3.7 Plus</option>
+      <option value="qwen3.6-plus">Qwen3.6 Plus</option>
+      <option value="hy4-preview">Hy4 preview</option>
+      <option value="hy3">Hy3</option>
+      <option value="union-alpha">Union Alpha Free</option>
+    </select>
+  </label>
+  <label>Размышления маршрутизатора
+    <select id="s-reasoning_router" title="Уровень reasoning для Muse Spark (остальные модели Go игнорируют)">
+      <option value="minimal">minimal</option>
+      <option value="low">low</option>
+      <option value="medium">medium</option>
+      <option value="high">high</option>
+      <option value="xhigh">xhigh</option>
     </select>
   </label>
   <label>Медиа (картинки, аудио, видео)
     <select id="s-model_media" title="Берёт любой вызов, в котором есть картинка, аудио, видео или скриншот">
       <option value="muse-spark-1.3-contributor">Muse Spark 1.3 Contributor</option>
+      <option value="muse-spark-1.2-contributor">Muse Spark 1.2 Contributor</option>
+      <option value="deepseek-v4-flash-vision-exp">DeepSeek V4 Flash Vision Exp</option>
+    </select>
+  </label>
+  <label>Размышления медиа
+    <select id="s-reasoning_media" title="Уровень reasoning для Muse Spark (остальные модели Go игнорируют)">
+      <option value="minimal">minimal</option>
+      <option value="low">low</option>
+      <option value="medium">medium</option>
+      <option value="high">high</option>
+      <option value="xhigh">xhigh</option>
     </select>
   </label>
   <hr>

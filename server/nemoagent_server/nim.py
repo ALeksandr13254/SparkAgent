@@ -1,21 +1,13 @@
-"""Model client: text roles via OpenCode Zen Responses API, embeddings via NVIDIA NIM.
+"""Model client: OpenCode Go ($10/mo) for text roles, NVIDIA NIM for embeddings.
 
 SparkAgent keeps NemoAgent's internal chat shape (messages + tools) so agent.py,
-traces and UI logs are untouched; translation to the Responses API happens here:
-system messages -> `instructions`, the rest -> `input` items, `max_tokens` ->
-`max_output_tokens`, OpenAI tools -> function tools.
+traces and UI logs are untouched; translation happens here per model transport:
+- Responses (`/responses`): Muse Spark contributors, Grok 4.6, GPT 5.6 Luna, DeepSeek flashes.
+  System messages -> `instructions`, rest -> `input` items, reasoning effort pinned per role.
+- Chat (`/chat/completions`): all other Go models, OpenAI SSE shape with tools.
+Requests carry the Go fingerprint (own UA + stable x-opencode-session per conversation).
 
-Calls without tools (dialogue, router) stream SSE `response.output_text.delta`
-events. Calls with tools (executor) use one non-streamed request per round and
-return tool calls in chat-compatible shape; the text is emitted as a single
-delta so the UI still shows executor progress.
-
-Embeddings for the client's long-term memory still go to NVIDIA NIM
-(`EMBED_TEXT_MODEL` / `EMBED_VL_MODEL`).
-
-Limits of this backend (see README): the Responses endpoint takes text and
-images; audio/video parts are replaced by a stub note. The free contributor
-model may be geo-blocked (incl. RU) — set LLM_PROXY to bypass it.
+Embeddings for the client's long-term memory still go to NVIDIA NIM.
 """
 from __future__ import annotations
 
@@ -173,6 +165,73 @@ def _map_usage(u: Optional[dict]) -> Optional[dict]:
             "total_tokens": u.get("total_tokens", 0)}
 
 
+# Models served on the Responses transport (verified Sep 2026); everything else on
+# the Go endpoint speaks OpenAI chat/completions (also verified per model, except
+# minimax-m2.7 / union-alpha which flaked with 500s — kept in the lists anyway).
+RESPONSES_MODELS = frozenset({
+    "muse-spark-1.3-contributor",
+    "muse-spark-1.2-contributor",
+    "grok-4.6",
+    "gpt-5.6-luna",
+    "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
+})
+
+# Only Muse Spark models accept the Responses `reasoning.effort` parameter.
+REASONING_MODELS = frozenset({
+    "muse-spark-1.3-contributor",
+    "muse-spark-1.2-contributor",
+})
+
+
+def _model_key(model: str) -> str:
+    return (model or "").split("/")[-1].strip()
+
+
+def _transport(model: str) -> str:
+    return "responses" if _model_key(model) in RESPONSES_MODELS else "chat"
+
+
+class _ThinkFilter:
+    """Splits streamed text into speech vs <think> reasoning: some chat models put
+    thinking inside content, which must never reach TTS. Holds at most a tag tail."""
+
+    def __init__(self) -> None:
+        self._in_think = False
+        self._buf = ""
+
+    def feed(self, text: str) -> tuple[str, str]:
+        self._buf += text or ""
+        speech, reasoning = [], []
+        while True:
+            if self._in_think:
+                i = self._buf.find("</think>")
+                if i < 0:
+                    break
+                reasoning.append(self._buf[:i])
+                self._buf = self._buf[i + len("</think>"):]
+                self._in_think = False
+            else:
+                i = self._buf.find("<think>")
+                if i < 0:
+                    keep = min(len(self._buf), len("<think>") - 1)
+                    speech.append(self._buf[:len(self._buf) - keep])
+                    self._buf = self._buf[len(self._buf) - keep:]
+                    break
+                speech.append(self._buf[:i])
+                self._buf = self._buf[i + len("<think>"):]
+                self._in_think = True
+        return "".join(speech), "".join(reasoning)
+
+    def finish(self) -> tuple[str, str]:
+        if self._in_think:  # unclosed think at the end counts as reasoning, not speech
+            reasoning, self._buf = self._buf, ""
+            self._in_think = False
+            return "", reasoning
+        speech, self._buf = self._buf, ""
+        return speech, ""
+
+
 class NIMClient:
     """Same public shape as NemoAgent's client; text goes to OpenCode Go, embeddings to NIM."""
 
@@ -217,6 +276,10 @@ class NIMClient:
     ) -> Completion:
         """Stream one assistant turn. on_event(kind, data) gets 'delta' / 'reasoning' / 'wait' events."""
         model = model or settings.LLM_MODEL
+        if _transport(model) == "chat":
+            return await self._chat_turn(
+                messages, tools, model=model, temperature=temperature, max_tokens=max_tokens,
+                tool_choice=tool_choice, on_event=on_event, session_id=session_id)
         instructions: list[str] = []
         inputs: list[dict] = []
         for m in messages or []:
@@ -236,7 +299,8 @@ class NIMClient:
         # NOTE: the Go gateway pins temperature server-side and rejects the parameter,
         # so it is never sent (the `temperature` argument is accepted for compatibility only).
         rtools = _convert_tools(tools)
-        body["reasoning"] = {"effort": reasoning_effort or ("medium" if rtools else "low")}
+        if _model_key(model) in REASONING_MODELS:
+            body["reasoning"] = {"effort": reasoning_effort or ("medium" if rtools else "low")}
         if rtools:
             body["tools"] = rtools
             # Console Go accepts only tool_choice "auto": emulate "required" (and named
@@ -251,8 +315,7 @@ class NIMClient:
             log.debug("Go request: model=%s tool_choice=%s tools=%s",
                       model, body.get("tool_choice"), [t.get("name") for t in rtools])
         # Per-request fingerprint: stable session id + fresh request id (Go docs).
-        extra_headers = {"x-opencode-session": session_id or f"ses_{uuid.uuid4().hex}",
-                         "x-opencode-request": f"msg_{uuid.uuid4().hex}"}
+        extra_headers = self._fp_headers(session_id)
 
         attempt = 0
         temp_dropped = False
@@ -389,6 +452,186 @@ class NIMClient:
         if acc.finish_reason is None:
             acc.finish_reason = "stop"
         if not acc.content.strip():
+            raise UpstreamError(502, "stream ended without a result")
+        return acc
+
+    @staticmethod
+    def _fp_headers(session_id: Optional[str]) -> dict:
+        return {"x-opencode-session": session_id or f"ses_{uuid.uuid4().hex}",
+                "x-opencode-request": f"msg_{uuid.uuid4().hex}"}
+
+    # ------------------------------------------------- chat/completions transport
+    @staticmethod
+    def _force_tools(messages: list[dict]) -> list[dict]:
+        """Copy of messages with a must-call-tools directive (the gateway takes only
+        tool_choice=auto, so `required` is emulated). Never mutates the input."""
+        directive = ("[System directive: you MUST call at least one of the provided functions "
+                     "in this turn; a plain-text answer is not accepted.]")
+        out = [dict(m) for m in messages]
+        if out and out[0].get("role") == "system":
+            first = dict(out[0])
+            c = first.get("content")
+            if isinstance(c, str):
+                first["content"] = (c + "\n\n" + directive).strip()
+            elif isinstance(c, list):
+                first["content"] = [*c, {"type": "text", "text": directive}]
+            else:
+                first["content"] = directive
+            out[0] = first
+        else:
+            out.insert(0, {"role": "system", "content": directive})
+        return out
+
+    async def _chat_turn(
+        self,
+        messages: list[dict],
+        tools: Optional[list[dict]],
+        *,
+        model: str,
+        temperature: Optional[float],
+        max_tokens: Optional[int],
+        tool_choice: Any,
+        on_event,
+        session_id: Optional[str],
+    ) -> Completion:
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+            "max_tokens": settings.LLM_MAX_TOKENS if max_tokens is None else max_tokens,
+        }
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if settings.LLM_TOP_P:
+            payload["top_p"] = float(settings.LLM_TOP_P)
+        if tools:
+            if (tool_choice or "auto") != "auto":
+                payload["messages"] = self._force_tools(messages)
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        headers = {"Accept": "text/event-stream", **self._fp_headers(session_id)}
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug("Go chat request: model=%s tools=%s",
+                      model, [t["function"]["name"] for t in (tools or [])])
+        attempt = 0
+        while True:
+            try:
+                return await self._chat_consume(payload, headers, on_event)
+            except _Emitted as e:
+                raise e.inner
+            except Exception as err:  # noqa: BLE001
+                kind = _classify(err)
+                text = str(err)
+                if kind == "geo":
+                    raise UpstreamError(403, f"OpenCode Go отклонил запрос (403): {text[:250]}") from err
+                dropped = [k for k in ("temperature", "top_p") if k in payload and k in text.lower()]
+                if dropped and attempt < 2:
+                    for k in dropped:
+                        del payload[k]
+                    attempt += 1
+                    log.warning("backend rejected %s — retrying without it", ",".join(dropped))
+                    continue
+                if kind in ("overloaded", "dropped") and attempt < len(RETRY_DELAYS):
+                    delay = 1.5 if kind == "dropped" else RETRY_DELAYS[attempt]
+                    attempt += 1
+                    log.warning("Go chat %s (%s) — retry %d in %.1fs", kind, text[:120], attempt, delay)
+                    if on_event:
+                        await on_event("wait", {"stage": "retry", "reason": kind, "attempt": attempt, "delay": delay})
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+
+    async def _chat_consume(self, payload: dict, headers: dict, on_event) -> Completion:
+        acc = Completion()
+        tool_slots: dict[int, dict] = {}
+        think = _ThinkFilter()
+        emitted = False
+
+        async def deliver_speech(text: str) -> None:
+            nonlocal emitted
+            speech, reasoning = think.feed(text)
+            if reasoning:
+                emitted = True
+                if on_event:
+                    await on_event("reasoning", {"content": reasoning})
+            if speech:
+                if not acc.first_token_at:
+                    acc.first_token_at = time.time()
+                acc.content += speech
+                emitted = True
+                if on_event:
+                    await on_event("delta", {"content": speech})
+
+        try:
+            async with self._zen.stream("POST", "chat/completions", json=payload, headers=headers) as resp:
+                if resp.status_code != 200:
+                    text = (await resp.aread()).decode("utf-8", "ignore")
+                    raise UpstreamError(resp.status_code, _error_detail(text))
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    p = line[5:].strip()
+                    if p == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(p)
+                    except json.JSONDecodeError:
+                        continue
+                    if chunk.get("error"):
+                        e = chunk["error"]
+                        raise UpstreamError(int(e.get("code") or 0), e.get("message") or json.dumps(e))
+                    choice = (chunk.get("choices") or [None])[0]
+                    if not choice:
+                        continue
+                    if choice.get("finish_reason"):
+                        acc.finish_reason = choice["finish_reason"]
+                    d = choice.get("delta") or {}
+                    reasoning = d.get("reasoning_content") or d.get("reasoning")
+                    if reasoning:
+                        emitted = True
+                        if on_event:
+                            await on_event("reasoning", {"content": reasoning})
+                    if d.get("content"):
+                        if not acc.first_token_at:
+                            acc.first_token_at = time.time()
+                        await deliver_speech(d["content"])
+                        if len(acc.content) >= 60:
+                            loop = _DEGENERATE_RE.search(acc.content[-400:])
+                            if loop:
+                                acc.content = acc.content[:-len(loop.group(0))]
+                                acc.finish_reason = "degenerate"
+                                log.warning("degenerate output after %d chars — stream aborted", len(acc.content))
+                                break
+                    for tc in d.get("tool_calls") or []:
+                        if not acc.first_token_at:
+                            acc.first_token_at = time.time()
+                        i = tc.get("index", 0)
+                        slot = tool_slots.setdefault(i, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+                        if tc.get("id"):
+                            slot["id"] = tc["id"]
+                        fn = tc.get("function") or {}
+                        if fn.get("name"):
+                            slot["function"]["name"] += fn["name"]
+                        if fn.get("arguments"):
+                            slot["function"]["arguments"] += fn["arguments"]
+        except Exception as e:
+            if emitted:
+                raise _Emitted(e)
+            raise
+        tail_speech, tail_reasoning = think.finish()
+        if tail_reasoning and on_event:
+            await on_event("reasoning", {"content": tail_reasoning})
+        if tail_speech:
+            if not acc.first_token_at:
+                acc.first_token_at = time.time()
+            acc.content += tail_speech
+            emitted = True
+            if on_event:
+                await on_event("delta", {"content": tail_speech})
+        acc.tool_calls = [tool_slots[i] for i in sorted(tool_slots)]
+        if acc.finish_reason is None:
+            acc.finish_reason = "tool_calls" if acc.tool_calls else "stop"
+        if not acc.content.strip() and not acc.tool_calls and not acc.reasoning:
             raise UpstreamError(502, "stream ended without a result")
         return acc
 

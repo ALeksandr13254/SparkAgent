@@ -249,6 +249,16 @@ class AgentSession:
     def text_model(self) -> str:
         return self.model_for_role("dialogue")
 
+    EFFORT_DEFAULTS = {"dialogue": "REASONING_DIALOGUE", "executor": "REASONING_EXECUTOR",
+                       "router": "REASONING_ROUTER", "media": "REASONING_MEDIA"}
+
+    def effort_for_role(self, role: str) -> str:
+        """Reasoning effort per role: client settings (client_info["reasoning"]) win, else server defaults."""
+        eff = str((self.client_info.get("reasoning") or {}).get(role) or "").strip().lower()
+        if eff in ("minimal", "low", "medium", "high", "xhigh"):
+            return eff
+        return str(getattr(settings, self.EFFORT_DEFAULTS.get(role, "REASONING_DIALOGUE"), "low"))
+
     def _model_for(self, messages: list[dict], role: str = "dialogue") -> str:
         """The role's model unless the request carries images / audio / video — then the media (omni) model."""
         if any(media.has_media(m.get("content")) for m in messages):
@@ -294,7 +304,8 @@ class AgentSession:
                              "params": self._trace_params(tts, use_memory, source, [], settings.DIALOGUE_MAX_TOKENS)})
             acc: Completion = await self.services.nim.chat_stream(messages, None, model=model,
                                                                   max_tokens=settings.DIALOGUE_MAX_TOKENS, on_event=on_event,
-                                                                  session_id=self.id)
+                                                                  session_id=self.id,
+                                                                  reasoning_effort=self.effort_for_role("dialogue"))
             await emit(router.finish())
             await self.send({"type": "trace", "kind": "response", "agent": "dialogue", "stage": stage, "turn": self.turns,
                              "round": call_no, "content": acc.content, "reasoning": acc.reasoning, "tool_calls": [],
@@ -331,7 +342,8 @@ class AgentSession:
         try:
             acc: Completion = await self.services.nim.chat_stream(messages, None, model=model,
                                                                   temperature=0.1, max_tokens=200, thinking=False,
-                                                                  session_id=self.id, reasoning_effort="minimal")
+                                                                  session_id=self.id,
+                                                                  reasoning_effort=self.effort_for_role("router"))
         except Exception as e:  # noqa: BLE001
             log.warning("session %s: router call failed: %s", self.id, e)
             return None
@@ -394,7 +406,7 @@ class AgentSession:
                 elif kind == "wait":
                     await self.send({"type": "wait", **data})
 
-            acc: Completion = await self.services.nim.chat_stream(messages, schemas, model=model, tool_choice=choice, on_event=on_event, session_id=self.id)
+            acc: Completion = await self.services.nim.chat_stream(messages, schemas, model=model, tool_choice=choice, on_event=on_event, session_id=self.id, reasoning_effort=self.effort_for_role("executor"))
             await self.send({"type": "trace", "kind": "response", "agent": "executor", "stage": "executor", "turn": self.turns,
                              "round": call_no + round_no - 1, "content": acc.content, "reasoning": acc.reasoning,
                              "tool_calls": acc.tool_calls, "finish_reason": acc.finish_reason, "usage": acc.usage,

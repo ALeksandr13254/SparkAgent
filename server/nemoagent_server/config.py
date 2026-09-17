@@ -69,6 +69,12 @@ class Settings:
     ROUTER_ENABLED = _bool("ROUTER_ENABLED", True)
     ROUTER_MODEL = _env("ROUTER_MODEL", GO_MODEL)
     ROUTER_TIMEOUT = _float("ROUTER_TIMEOUT", 4.0)             # seconds to wait for its verdict after the answer
+    # Reasoning effort per role (minimal|low|medium|high|xhigh). Applies to Muse Spark
+    # models; other Go models ignore it. The client overrides each role from its settings.
+    REASONING_DIALOGUE = _env("REASONING_DIALOGUE", "low")
+    REASONING_EXECUTOR = _env("REASONING_EXECUTOR", "medium")
+    REASONING_ROUTER = _env("REASONING_ROUTER", "minimal")
+    REASONING_MEDIA = _env("REASONING_MEDIA", "low")
     LLM_MAX_TOKENS = _int("LLM_MAX_TOKENS", 4096)            # executor rounds (write_file content can be long)
     DIALOGUE_MAX_TOKENS = _int("DIALOGUE_MAX_TOKENS", 1200)   # spoken answer + screen part; bounds a runaway to ~30 s
     LLM_TOP_P = _env("LLM_TOP_P")                   # unset = model default

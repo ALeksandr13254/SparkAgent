@@ -53,6 +53,10 @@ class ClientCore:
             "model_executor": settings.MODEL_EXECUTOR,
             "model_router": settings.MODEL_ROUTER,
             "model_media": settings.MODEL_MEDIA,
+            "reasoning_dialogue": settings.REASONING_DIALOGUE,   # effort per role (Muse Spark only)
+            "reasoning_executor": settings.REASONING_EXECUTOR,
+            "reasoning_router": settings.REASONING_ROUTER,
+            "reasoning_media": settings.REASONING_MEDIA,
             "voice_ru": settings.TTS_VOICE_RU,
             "voice_en": settings.TTS_VOICE_EN,
             "tts_speed": settings.TTS_SPEED,
@@ -91,12 +95,18 @@ class ClientCore:
     # ============================================================== settings persistence
     PERSIST_KEYS = ("tts_mode", "auto_listen", "barge_in", "tools_enabled", "confirm", "voice_ru", "voice_en", "tts_speed",
                     "stt_language", "tts_language", "model_dialogue", "model_executor", "model_router", "model_media",
+                    "reasoning_dialogue", "reasoning_executor", "reasoning_router", "reasoning_media",
                     "speaker_device", "mic_device", "screenshot_monitors")
     MODEL_KEYS = ("model_dialogue", "model_executor", "model_router", "model_media")
+    EFFORT_KEYS = ("reasoning_dialogue", "reasoning_executor", "reasoning_router", "reasoning_media")
 
     def _models(self) -> dict:
         """{role: model id} for the server, only the roles that are set."""
         return {k.removeprefix("model_"): str(self.state.get(k) or "") for k in self.MODEL_KEYS if self.state.get(k)}
+
+    def _reasoning(self) -> dict:
+        """{role: effort} for the server, only the roles that are set."""
+        return {k.removeprefix("reasoning_"): str(self.state.get(k) or "") for k in self.EFFORT_KEYS if self.state.get(k)}
 
     def _load_state(self) -> None:
         try:
@@ -515,6 +525,7 @@ class ClientCore:
         info["tools_enabled"] = self.state["tools_enabled"]
         info["persona_gender"] = self._persona_gender()
         info["models"] = self._models()
+        info["reasoning"] = self._reasoning()
         info["prompts"] = dict(self.prompt_overrides)   # the server holds them for this session only
         return info
 
@@ -951,11 +962,13 @@ class ClientCore:
         if "screenshot_monitors" in s:   # a list of 1-based monitor numbers; empty = all monitors
             s["screenshot_monitors"] = [int(i) for i in (s["screenshot_monitors"] or []) if str(i).isdigit()]
         for key in ("tts_mode", "auto_listen", "barge_in", "tools_enabled", "confirm", "voice_ru", "voice_en", "tts_speed",
-                    "stt_language", "tts_language", "memory_recall", "screenshot_monitors", *self.MODEL_KEYS):
+                    "stt_language", "tts_language", "memory_recall", "screenshot_monitors", *self.MODEL_KEYS, *self.EFFORT_KEYS):
             if key in s:
                 self.state[key] = s[key]
         if any(k in s for k in self.MODEL_KEYS) and self.server_ws:
             await self.send_server({"type": "client_info", "client": {"models": self._models()}})
+        if any(k in s for k in self.EFFORT_KEYS) and self.server_ws:
+            await self.send_server({"type": "client_info", "client": {"reasoning": self._reasoning()}})
         if any(k in s for k in ("voice_ru", "voice_en", "tts_language")) and self.server_ws:
             self._sync_runtime_settings()
             await self.send_server({"type": "client_info", "client": {"persona_gender": self._persona_gender()}})
