@@ -130,8 +130,14 @@ def _message_to_inputs(msg: dict) -> list[dict]:
             if isinstance(p, dict):
                 parts.extend(_part_to_inputs(p))
     items: list[dict] = []
-    if parts and role in ("user", "assistant"):
+    if parts and role == "user":
         items.append({"type": "message", "role": role, "content": parts})
+    elif role == "assistant":
+        # Console Go requires output_text (not input_text) on assistant history messages.
+        texts = [p.get("text", "") for p in parts if p.get("type") == "input_text"]
+        if any(t.strip() for t in texts):
+            items.append({"type": "message", "role": "assistant",
+                          "content": [{"type": "output_text", "text": "\n".join(texts)}]})
     for tc in msg.get("tool_calls") or []:
         fn = tc.get("function") or {}
         items.append({"type": "function_call",
