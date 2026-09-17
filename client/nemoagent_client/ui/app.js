@@ -371,7 +371,49 @@
     for (const k of ['tts_mode', 'confirm', 'stt_language', 'tts_language']) $('s-' + k).value = s[k] || (k === 'tts_language' ? 'ru' : s[k]);
     const models = si.models || {};
     for (const role of ['dialogue', 'executor', 'router', 'media']) $('s-model_' + role).value = s['model_' + role] || models[role] || '';
-    for (const role of ['dialogue', 'executor', 'router', 'media']) { const el = $('s-reasoning_' + role); if (el) el.value = s['reasoning_' + role] || ''; }
+    // effort scales differ per model (from the OpenCode app bundle); unknown/toggle-only models get a disabled default
+    const MODEL_EFFORTS = {
+      'muse-spark-1.3-contributor': ['minimal', 'low', 'medium', 'high', 'xhigh'],
+      'muse-spark-1.2-contributor': ['minimal', 'low', 'medium', 'high', 'xhigh'],
+      'grok-4.6': ['low', 'medium', 'high', 'xhigh'],
+      'gpt-5.6-luna': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+      'glm-5.3-flash': ['low', 'high', 'max'],
+      'glm-5.3': ['low', 'high', 'max'],
+      'glm-5.2': ['none', 'minimal', 'low', 'medium', 'high'],
+      'kimi-k3': ['none', 'minimal', 'low', 'medium', 'high'],
+      'kimi-k2.7-code': ['none', 'minimal', 'low', 'medium', 'high'],
+      'kimi-k2.6': ['none', 'minimal', 'low', 'medium', 'high'],
+      'minimax-m3': ['low', 'medium', 'high', 'max'],
+      'minimax-m2.5': ['none', 'minimal', 'low', 'medium', 'high'],
+      'qwen3.8-max': ['none', 'low', 'medium', 'high', 'max'],
+      'qwen3.8-flash': ['low', 'medium', 'xhigh'],
+      'deepseek-v4.1-flash': ['none', 'minimal', 'low', 'medium', 'high'],
+      'deepseek-v4-pro': ['none', 'high', 'max'],
+      'deepseek-v4-flash': ['none', 'high', 'max'],
+      'deepseek-v4-flash-vision-exp': ['low', 'high', 'max'],
+      'hy4-preview': ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+    };
+    window.refreshEffort = function (role, want) {
+      const el = $('s-reasoning_' + role);
+      if (!el) return '';
+      const m = $('s-model_' + role).value;
+      const opts = MODEL_EFFORTS[m];
+      const sig = m + '|' + (opts ? opts.join(',') : '-');
+      if (el._sig !== sig) {
+        if (!opts) {
+          el.innerHTML = '<option value="">по умолчанию</option>';
+          el.disabled = true; el.title = 'Эта модель не принимает уровень reasoning — дефолт гейта';
+        } else {
+          el.disabled = false; el.title = 'Уровень reasoning (шкала этой модели)';
+          el.innerHTML = opts.map((v) => `<option value="${v}">${v}</option>`).join('');
+        }
+        el._sig = sig;
+      }
+      if (!opts) { el.value = ''; return ''; }
+      el.value = (want && opts.includes(want)) ? want : (opts.includes(el.value) ? el.value : opts[0]);
+      return el.value;
+    };
+    for (const role of ['dialogue', 'executor', 'router', 'media']) refreshEffort(role, s['reasoning_' + role]);
     $('model').title = Object.entries(models).map(([r, m]) => `${r}: ${m}`).join('\n');
     for (const k of ['auto_listen', 'barge_in', 'tools_enabled']) $('s-' + k).checked = !!s[k];
     fillVoices('s-voice_ru', state.voices.ru, s.voice_ru); fillVoices('s-voice_en', state.voices.en, s.voice_en);
@@ -428,7 +470,12 @@
     updateSettingsPane();
   };
   updateSettingsPane();
-  for (const k of ['tts_mode', 'confirm', 'stt_language', 'tts_language', 'model_dialogue', 'model_executor', 'model_router', 'model_media', 'reasoning_dialogue', 'reasoning_executor', 'reasoning_router', 'reasoning_media', 'voice_ru', 'voice_en', 'speaker_device', 'mic_device']) $('s-' + k).onchange = (e) => pushSettings({ [k]: e.target.value });
+  for (const k of ['tts_mode', 'confirm', 'stt_language', 'tts_language', 'reasoning_dialogue', 'reasoning_executor', 'reasoning_router', 'reasoning_media', 'voice_ru', 'voice_en', 'speaker_device', 'mic_device']) $('s-' + k).onchange = (e) => pushSettings({ [k]: e.target.value });
+  for (const role of ['dialogue', 'executor', 'router', 'media']) $('s-model_' + role).onchange = (e) => {
+    const v = e.target.value;
+    const eff = window.refreshEffort(role, $('s-reasoning_' + role).value);
+    pushSettings({ ['model_' + role]: v, ['reasoning_' + role]: eff });
+  };
   for (const k of ['auto_listen', 'barge_in', 'tools_enabled']) $('s-' + k).onchange = (e) => pushSettings({ [k]: e.target.checked });
   $('s-tts_speed').oninput = (e) => { $('s-tts_speed-v').textContent = Number(e.target.value).toFixed(2); };
   $('s-tts_speed').onchange = (e) => pushSettings({ tts_speed: Number(e.target.value) });

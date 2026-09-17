@@ -255,7 +255,7 @@ class AgentSession:
     def effort_for_role(self, role: str) -> str:
         """Reasoning effort per role: client settings (client_info["reasoning"]) win, else server defaults."""
         eff = str((self.client_info.get("reasoning") or {}).get(role) or "").strip().lower()
-        if eff in ("minimal", "low", "medium", "high", "xhigh"):
+        if eff in ("none", "minimal", "low", "medium", "high", "xhigh", "max"):
             return eff
         return str(getattr(settings, self.EFFORT_DEFAULTS.get(role, "REASONING_DIALOGUE"), "low"))
 

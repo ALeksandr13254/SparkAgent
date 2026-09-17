@@ -177,11 +177,56 @@ RESPONSES_MODELS = frozenset({
     "deepseek-v4-flash-vision-exp",
 })
 
+# Reasoning effort scales per Go model (from the OpenCode app bundle, Sep 2026).
+# None = no effort UI (toggle-only / unknown): gateway default applies.
+MODEL_EFFORTS: dict[str, list[str] | None] = {
+    "muse-spark-1.3-contributor": ["minimal", "low", "medium", "high", "xhigh"],
+    "muse-spark-1.2-contributor": ["minimal", "low", "medium", "high", "xhigh"],
+    "grok-4.6": ["low", "medium", "high", "xhigh"],
+    "gpt-5.6-luna": ["none", "low", "medium", "high", "xhigh", "max"],
+    "glm-5.3-flash": ["low", "high", "max"],
+    "glm-5.3": ["low", "high", "max"],
+    "glm-5.2": ["none", "minimal", "low", "medium", "high"],
+    "glm-5.1": None,
+    "kimi-k3": ["none", "minimal", "low", "medium", "high"],
+    "kimi-k2.7-code": ["none", "minimal", "low", "medium", "high"],
+    "kimi-k2.6": ["none", "minimal", "low", "medium", "high"],
+    "longcat-2.0": None,
+    "mimo-v2.5": None,
+    "mimo-v2.5-pro": None,
+    "minimax-m3": ["low", "medium", "high", "max"],
+    "minimax-m2.7": None,
+    "minimax-m2.5": ["none", "minimal", "low", "medium", "high"],
+    "qwen3.8-max": ["none", "low", "medium", "high", "max"],
+    "qwen3.8-flash": ["low", "medium", "xhigh"],
+    "qwen3.7-max": None,
+    "qwen3.7-plus": None,
+    "qwen3.6-plus": None,
+    "deepseek-v4.1-flash": ["none", "minimal", "low", "medium", "high"],
+    "deepseek-v4-pro": ["none", "high", "max"],
+    "deepseek-v4-flash": ["none", "high", "max"],
+    "deepseek-v4-flash-vision-exp": ["low", "high", "max"],
+    "hy4-preview": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+    "hy3": None,
+    "union-alpha": None,
+}
+
 # Only Muse Spark models accept the Responses `reasoning.effort` parameter.
 REASONING_MODELS = frozenset({
     "muse-spark-1.3-contributor",
     "muse-spark-1.2-contributor",
 })
+
+
+def _effort_for(model: str, effort: Optional[str]) -> Optional[str]:
+    """Normalize a UI effort value to the model's own scale; None = omit the parameter."""
+    if not effort:
+        return None
+    allowed = MODEL_EFFORTS.get(_model_key(model))
+    if not allowed:
+        return None
+    v = effort.strip().lower()
+    return v if v in allowed else None
 
 
 def _model_key(model: str) -> str:
@@ -254,6 +299,7 @@ class NIMClient:
             timeout=httpx.Timeout(connect=20.0, read=120.0, write=60.0, pool=60.0),
             limits=httpx.Limits(max_keepalive_connections=16, max_connections=32, keepalive_expiry=60),
         )
+        self._no_reasoning: set[str] = set()  # models that rejected the reasoning param (don't resend)
 
     async def aclose(self) -> None:
         await self._zen.aclose()
@@ -279,7 +325,8 @@ class NIMClient:
         if _transport(model) == "chat":
             return await self._chat_turn(
                 messages, tools, model=model, temperature=temperature, max_tokens=max_tokens,
-                tool_choice=tool_choice, on_event=on_event, session_id=session_id)
+                tool_choice=tool_choice, on_event=on_event, session_id=session_id,
+                reasoning_effort=reasoning_effort)
         instructions: list[str] = []
         inputs: list[dict] = []
         for m in messages or []:
@@ -299,8 +346,9 @@ class NIMClient:
         # NOTE: the Go gateway pins temperature server-side and rejects the parameter,
         # so it is never sent (the `temperature` argument is accepted for compatibility only).
         rtools = _convert_tools(tools)
-        if _model_key(model) in REASONING_MODELS:
-            body["reasoning"] = {"effort": reasoning_effort or ("medium" if rtools else "low")}
+        eff = _effort_for(model, reasoning_effort or ("medium" if rtools else "low"))
+        if eff is not None:
+            body["reasoning"] = {"effort": eff}
         if rtools:
             body["tools"] = rtools
             # Console Go accepts only tool_choice "auto": emulate "required" (and named
@@ -493,6 +541,7 @@ class NIMClient:
         tool_choice: Any,
         on_event,
         session_id: Optional[str],
+        reasoning_effort: Optional[str] = None,
     ) -> Completion:
         payload: dict[str, Any] = {
             "model": model,
@@ -504,6 +553,11 @@ class NIMClient:
             payload["temperature"] = temperature
         if settings.LLM_TOP_P:
             payload["top_p"] = float(settings.LLM_TOP_P)
+        eff = _effort_for(model, reasoning_effort)
+        # Wire format per AI SDK: chat transport takes top-level snake_case reasoning_effort
+        # (responses transport takes reasoning.effort). Dropped automatically if rejected.
+        if eff is not None and model not in self._no_reasoning:
+            payload["reasoning_effort"] = eff
         if tools:
             if (tool_choice or "auto") != "auto":
                 payload["messages"] = self._force_tools(messages)
@@ -524,10 +578,12 @@ class NIMClient:
                 text = str(err)
                 if kind == "geo":
                     raise UpstreamError(403, f"OpenCode Go отклонил запрос (403): {text[:250]}") from err
-                dropped = [k for k in ("temperature", "top_p") if k in payload and k in text.lower()]
+                dropped = [k for k in ("temperature", "top_p", "reasoning", "reasoning_effort") if k in payload and k in text.lower()]
                 if dropped and attempt < 2:
                     for k in dropped:
                         del payload[k]
+                    if "reasoning" in dropped:
+                        self._no_reasoning.add(model)
                     attempt += 1
                     log.warning("backend rejected %s — retrying without it", ",".join(dropped))
                     continue

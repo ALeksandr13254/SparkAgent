@@ -81,10 +81,10 @@ class Settings:
     MODEL_MEDIA = _env("MODEL_MEDIA", "muse-spark-1.3-contributor")
     # Reasoning effort per role (minimal|low|medium|high|xhigh); applies to Muse Spark
     # models, other Go models ignore it.
-    REASONING_DIALOGUE = _env("REASONING_DIALOGUE", "low")
-    REASONING_EXECUTOR = _env("REASONING_EXECUTOR", "medium")
-    REASONING_ROUTER = _env("REASONING_ROUTER", "minimal")
-    REASONING_MEDIA = _env("REASONING_MEDIA", "low")
+    REASONING_DIALOGUE = _env("REASONING_DIALOGUE", "minimal")
+    REASONING_EXECUTOR = _env("REASONING_EXECUTOR", "xhigh")
+    REASONING_ROUTER = _env("REASONING_ROUTER", "xhigh")
+    REASONING_MEDIA = _env("REASONING_MEDIA", "xhigh")
     TTS_VOICE_RU = _env("TTS_VOICE_RU", "ru_f1")
     TTS_VOICE_EN = _env("TTS_VOICE_EN", "eng_f5")
     TTS_SPEED = _float("TTS_SPEED", 1.0)               # duration_scale: <1 faster, >1 slower
